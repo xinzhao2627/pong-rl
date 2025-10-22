@@ -1,14 +1,14 @@
 import gymnasium as gym
 import os
-from stable_baselines3 import DQN
+from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import (
     DummyVecEnv,
     VecFrameStack,
     VecNormalize,
     VecMonitor,
 )
-from stable_baselines3.dqn.policies import CnnPolicy
-
+from stable_baselines3.ppo.policies import ActorCriticPolicy
+from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 import ale_py
 import json
 from stable_baselines3.common.logger import configure
@@ -19,10 +19,7 @@ from stable_baselines3.common.callbacks import (
     CheckpointCallback,
     CallbackList,
 )
-from stable_baselines3.dqn.policies import DQNPolicy
-from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 from gymnasium import spaces
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -57,7 +54,7 @@ class CustomCNN(BaseFeaturesExtractor):
         return self.linear(self.cnn(obs))
 
 
-class CustomCnnPolicy(DQNPolicy):
+class CustomCnnPolicy(ActorCriticPolicy):
     def __init__(self, *args, **kwargs):
         super().__init__(
             *args,
@@ -69,18 +66,17 @@ class CustomCnnPolicy(DQNPolicy):
 
 
 TOTAL_TIMESTEPS = 5_000_000
-# TOTAL_TIMESTEPS = 50000
 LOG_INTERVAL = 10
 CHECKPOINT_FREQ = 25_000
-log_dir = "./sb3_pong_logs/"
-save_dir = "./sb3_pong_models/"
+log_dir = "./sb3_pong_logs_ppo/"
+save_dir = "./sb3_pong_models_ppo/"
 os.makedirs(log_dir, exist_ok=True)
 os.makedirs(save_dir, exist_ok=True)
 
 checkpoint_callback = CheckpointCallback(
     save_freq=CHECKPOINT_FREQ,
     save_path=save_dir,
-    name_prefix="pong_dqn_model",
+    name_prefix="pong_ppo_model",
     save_replay_buffer=False,
     save_vecnormalize=True,
 )
@@ -107,49 +103,46 @@ class RewardLoggingCallback(BaseCallback):
 
 config = {
     "env_name": "PongNoFrameskip-v4",
-    "num_envs": 4,
+    "num_envs": 8,
     "seed": 100,
 }
-
-
 env = make_atari_env(config["env_name"], n_envs=config["num_envs"], seed=config["seed"])
 env = VecFrameStack(env, n_stack=4)
-
-
 print("Environment created and wrapped.")
 print("Observation space:", env.observation_space)
 print("Action space:", env.action_space)
-model = DQN(
+model = PPO(
     CustomCnnPolicy,
     env,
-    learning_rate=2.5e-4,  # or 0.0001
-    buffer_size=10000,
-    learning_starts=100000,
-    batch_size=256,
-    gamma=0.99,
-    train_freq=4,
-    gradient_steps=1,
-    target_update_interval=1000,
-    exploration_fraction=0.1,
-    exploration_final_eps=0.01,
-    exploration_initial_eps=1.0,
-    verbose=1,
+    batch_size=32,
+    clip_range=0.1,
+    ent_coef=0.01,
+    gae_lambda=0.9,
+    learning_rate=1e-4,
+    max_grad_norm=0.5,
+    n_epochs=4,
+    n_steps=128,
+    vf_coef=0.5,
     tensorboard_log=log_dir,
+    verbose=1,
 )
-
 print(model.policy)
-print("\nDQN Model Initialized. Starting training...")
+
+print("\nppo Model Initialized. Starting training...")
 
 callback_list = CallbackList([checkpoint_callback, RewardLoggingCallback()])
+
+
 model.learn(
     total_timesteps=TOTAL_TIMESTEPS,
     callback=callback_list,
     log_interval=LOG_INTERVAL,
 )
 
-model.save(os.path.join(save_dir, "pong_dqn_final_model"))
+
+model.save(os.path.join(save_dir, "pong_ppo_final_model"))
 data_dict = {"episode_rewards": rewards, "episode_lengths": lengths}
-with open(f"dqn_res.json", "w") as json_file:
+with open(f"ppo_res.json", "w") as json_file:
     json.dump(data_dict, json_file)
 
 print("\nTraining finished. Final model saved.")
