@@ -122,10 +122,10 @@ print("Action space:", env.action_space)
 model = DQN(
     CustomCnnPolicy,
     env,
+    batch_size=256,
     learning_rate=2.5e-4,  # or 0.0001
     buffer_size=10000,
     learning_starts=100000,
-    batch_size=256,
     gamma=0.99,
     train_freq=4,
     gradient_steps=1,
